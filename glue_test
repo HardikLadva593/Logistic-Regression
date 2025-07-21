@@ -1,0 +1,84 @@
+# prompt: I have 4 different dataframes with a common column key in them. I want to partition each dataframe based on a common key value and store as a zip file on s3 bucket
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+from pyspark.sql.functions import concat_ws, trim
+from pyspark.sql.functions import lit
+
+# Assume you have four DataFrames: df1, df2, df3, df4
+# Replace these with your actual DataFrame loading logic
+# For demonstration, let's create some sample DataFrames
+data1 = [("A", 1, "X"), ("B", 2, "Y"), ("A", 3, "Z")]
+columns1 = ["key", "value1", "col1"]
+df1 = spark.createDataFrame(data1, columns1)
+
+data2 = [("A", 10, "P"), ("C", 20, "Q"), ("B", 30, "R")]
+columns2 = ["key", "value2", "col2"]
+df2 = spark.createDataFrame(data2, columns2)
+
+data3 = [("B", 100, "M"), ("A", 200, "N"), ("C", 300, "O")]
+columns3 = ["key", "value3", "col3"]
+df3 = spark.createDataFrame(data3, columns3)
+
+data4 = [("C", 1000, "G"), ("B", 2000, "H"), ("A", 3000, "I")]
+columns4 = ["key", "value4", "col4"]
+df4 = spark.createDataFrame(data4, columns4)
+
+# Define the list of DataFrames and the common key column
+dataframes = [df1, df2, df3, df4]
+key_column = "key"
+s3_bucket = "your-s3-bucket-name"  # Replace with your S3 bucket name
+s3_output_folder = "partitioned_data" # Replace with your desired output folder
+
+# Get unique keys from all dataframes
+unique_keys = df1.select(key_column).union(df2.select(key_column)).union(df3.select(key_column)).union(df4.select(key_column)).distinct().rdd.flatMap(lambda x: x).collect()
+
+import os
+import zipfile
+import boto3
+
+# Configure your S3 client
+# Make sure your environment is configured with AWS credentials
+s3_client = boto3.client('s3')
+
+# Iterate through each unique key
+for key_value in unique_keys:
+    # Filter each DataFrame by the current key value
+    partitioned_dfs = [df.filter(col(key_column) == key_value) for df in dataframes]
+
+    # Create a temporary directory to store CSV files for this partition
+    temp_dir = f"/tmp/partition_{key_value}"
+    os.makedirs(temp_dir, exist_ok=True)
+
+    # Write each partitioned DataFrame to a temporary CSV file
+    for i, pdf in enumerate(partitioned_dfs):
+        if pdf.count() > 0: # Only write if there is data for this key
+            csv_filename = f"dataframe_{i+1}_{key_value}.csv"
+            csv_path = os.path.join(temp_dir, csv_filename)
+            pdf.coalesce(1).write.mode("overwrite").option("header", "true").csv(csv_path)
+
+    # Create a zip file for this partition
+    zip_filename = f"partition_{key_value}.zip"
+    zip_path = os.path.join("/tmp", zip_filename)
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        for root, _, files in os.walk(temp_dir):
+            for file in files:
+                # Add only the actual data file (part-...) from the Spark output directory
+                if file.startswith("part-"):
+                     zipf.write(os.path.join(root, file), arcname=file)
+
+    # Upload the zip file to S3
+    s3_key = f"{s3_output_folder}/{zip_filename}"
+    try:
+        s3_client.upload_file(zip_path, s3_bucket, s3_key)
+        print(f"Successfully uploaded {zip_filename} to s3://{s3_bucket}/{s3_key}")
+    except Exception as e:
+        print(f"Error uploading {zip_filename} to S3: {e}")
+
+    # Clean up temporary files and directory
+    if os.path.exists(zip_path):
+        os.remove(zip_path)
+    if os.path.exists(temp_dir):
+        import shutil
+        shutil.rmtree(temp_dir)
+
