@@ -1,0 +1,71 @@
+import csv
+from faker import Faker
+import os
+import time
+
+def generate_dummy_csv(filename, num_records):
+    """
+    Generates a dummy CSV file with specified number of records.
+
+    Args:
+        filename (str): The name of the CSV file to create.
+        num_records (int): The number of records (rows) to generate.
+    """
+    fake = Faker()
+    
+    # Define column headers
+    headers = [
+        "id", "first_name", "last_name", "email", "phone_number",
+        "address", "city", "state", "zip_code", "country",
+        "job_title", "company", "date_of_birth", "salary", "blood_group"
+    ]
+
+    print(f"Generating {num_records} records into '{filename}'...")
+    start_time = time.time()
+
+    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+        csv_writer = csv.writer(csvfile)
+        
+        # Write headers
+        csv_writer.writerow(headers)
+        
+        # Write records
+        for i in range(1, num_records + 1):
+            row = [
+                i, # ID
+                fake.first_name(),
+                fake.last_name(),
+                fake.email(),
+                fake.phone_number(),
+                fake.street_address(),
+                fake.city(),
+                fake.state_abbr(), # State abbreviation
+                fake.postcode(),
+                fake.country(),
+                fake.job(),
+                fake.company(),
+                fake.date_of_birth(minimum_age=18, maximum_age=90).isoformat(), # YYYY-MM-DD
+                round(fake.random_number(digits=5) + fake.pydecimal(left_digits=2, right_digits=2, positive=True), 2), # Dummy salary
+                fake.blood_group()
+            ]
+            csv_writer.writerow(row)
+            
+            if i % 100000 == 0: # Print progress every 100,000 records
+                print(f"  {i}/{num_records} records generated...")
+
+    end_time = time.time()
+    print(f"Finished generating '{filename}'.")
+    print(f"Total time taken: {end_time - start_time:.2f} seconds.")
+    print(f"File size: {os.path.getsize(filename) / (1024 * 1024):.2f} MB")
+
+# --- Main execution ---
+if __name__ == "__main__":
+    output_csv_file = "dummy_data_1_million.csv"
+    num_records_to_generate = 1_000_000 # Use underscores for readability in large numbers
+
+    generate_dummy_csv(output_csv_file, num_records_to_generate)
+
+    # Optional: You can quickly read the first few lines to verify
+    # with open(output_csv_file, 'r', encoding='utf-8') as f:
+    #     for _ in range(5):
+    #         print(f.readline().strip())
